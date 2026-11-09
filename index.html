@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Coffee Please</title>
+<meta name="description" content="Ask the team if they want a coffee, and keep count of who's shouted.">
+<meta name="theme-color" content="#1b684c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Coffee">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css?v=1">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true"><path d="M9 18h26v10a12 12 0 0 1-12 12h-2A12 12 0 0 1 9 28z" fill="currentColor"/><path d="M35 21h3a5 5 0 0 1 0 10h-3" fill="none" stroke="currentColor" stroke-width="3"/><path d="M17 6c-2 3 2 5 0 8M23 5c-2 3 2 5 0 8M29 6c-2 3 2 5 0 8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>Coffee please</div>
+    <div class="who" id="who"></div>
+  </header>
+  <div id="banner" class="banner" hidden></div>
+  <main id="main">
+    <section class="view"><div class="card"><p class="muted">Loading…</p></div></section>
+  </main>
+</div>
+<nav class="tabs" id="tabs" aria-label="Sections" hidden><div>
+  <button class="tab" data-act="tab" data-tab="run" id="tab-run"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9h13v5a6 6 0 0 1-6 6h-1a6 6 0 0 1-6-6z"/><path d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17"/></svg>Run</button>
+  <button class="tab" data-act="tab" data-tab="tally" id="tab-tally"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Tally</button>
+  <button class="tab" data-act="tab" data-tab="history" id="tab-history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>History</button>
+  <button class="tab" data-act="tab" data-tab="me" id="tab-me"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Me</button>
+</div></nav>
+<div id="sheet" class="sheet-wrap" hidden><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" id="sheetBody"></div></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script type="module" src="app.js?v=1"></script>
+</body>
+</html>

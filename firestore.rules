@@ -1,0 +1,96 @@
+rules_version = '2';
+
+// Coffee Please access rules.
+// Only people who joined with the current invite code can see or change anything.
+// Each person can only change their own name, saved orders, answers and alert devices.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function isMember() { return signedIn() && exists(/databases/$(database)/documents/members/$(me())); }
+    function teamDoc() { return get(/databases/$(database)/documents/config/team); }
+    function isOwner() {
+      return signedIn() && exists(/databases/$(database)/documents/config/team) && teamDoc().data.owner == me();
+    }
+    function validName(n) { return n is string && n.size() > 0 && n.size() <= 40; }
+
+    // The team: who owns it. Created once, by the first person to sign in.
+    match /config/team {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['owner', 'createdAt'])
+        && request.resource.data.owner == me();
+      allow update, delete: if false;
+    }
+
+    // The invite code. Only the owner can see or change it.
+    match /secrets/invite {
+      allow read: if isOwner();
+      allow update: if isOwner()
+        && request.resource.data.keys().hasOnly(['code'])
+        && request.resource.data.code is string && request.resource.data.code.size() >= 6;
+      allow create: if signedIn()
+        && getAfter(/databases/$(database)/documents/config/team).data.owner == me()
+        && request.resource.data.keys().hasOnly(['code'])
+        && request.resource.data.code is string && request.resource.data.code.size() >= 6;
+      allow delete: if false;
+    }
+
+    // Team members. Joining needs the current invite code.
+    match /members/{uid} {
+      allow read: if isMember() || (signedIn() && me() == uid);
+      allow create: if signedIn() && me() == uid
+        && request.resource.data.keys().hasOnly(['name', 'code', 'joinedAt', 'favourites', 'notifyAnswers'])
+        && validName(request.resource.data.name)
+        && request.resource.data.code == getAfter(/databases/$(database)/documents/secrets/invite).data.code;
+      allow update: if signedIn() && me() == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'favourites', 'notifyAnswers'])
+        && validName(request.resource.data.name)
+        && request.resource.data.favourites is list && request.resource.data.favourites.size() <= 12;
+      allow delete: if signedIn() && (me() == uid || isOwner());
+    }
+
+    // Coffee runs. The person buying starts one, then records or cancels it.
+    match /runs/{runId} {
+      allow read: if isMember();
+      allow create: if isMember()
+        && request.resource.data.keys().hasOnly(['by', 'cafe', 'status', 'createdAt', 'closesAt', 'invited', 'reminded'])
+        && request.resource.data.by == me()
+        && request.resource.data.status == 'open'
+        && request.resource.data.reminded == false
+        && request.resource.data.cafe is string && request.resource.data.cafe.size() <= 60
+        && request.resource.data.invited is list && request.resource.data.invited.size() <= 60
+        && request.resource.data.createdAt is number
+        && request.resource.data.closesAt is number
+        && request.resource.data.closesAt > request.resource.data.createdAt
+        && request.resource.data.closesAt <= request.resource.data.createdAt + 3600000;
+      allow update: if isMember()
+        && resource.data.by == me()
+        && resource.data.status == 'open'
+        && request.resource.data.status in ['done', 'cancelled']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'orders', 'completedAt']);
+      allow delete: if isOwner();
+
+      // Answers: each person writes only their own, and only while the run is open.
+      match /answers/{uid} {
+        function run() { return get(/databases/$(database)/documents/runs/$(runId)).data; }
+        allow read: if isMember();
+        allow create, update: if isMember() && me() == uid
+          && run().status == 'open'
+          && (me() in run().invited || run().by == me())
+          && request.resource.data.keys().hasOnly(['answer', 'order', 'at'])
+          && request.resource.data.answer in ['yes', 'no'];
+        allow delete: if isMember() && me() == uid && run().status == 'open';
+      }
+    }
+
+    // This person's devices for alerts. Private to them; the alert function reads them with admin access.
+    match /pushSubs/{uid} {
+      allow read, delete: if signedIn() && me() == uid;
+      allow create, update: if signedIn() && me() == uid
+        && request.resource.data.keys().hasOnly(['subs'])
+        && request.resource.data.subs is list && request.resource.data.subs.size() <= 6;
+    }
+  }
+}

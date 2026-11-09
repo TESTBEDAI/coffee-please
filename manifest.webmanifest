@@ -1,0 +1,15 @@
+{
+  "name": "Coffee Please",
+  "short_name": "Coffee",
+  "description": "Ask the team if they want a coffee, and keep count of who's shouted.",
+  "id": "./",
+  "display": "standalone",
+  "scope": "./",
+  "background_color": "#f2f5f1",
+  "theme_color": "#1b684c",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
