@@ -1,8 +1,0 @@
-node_modules/
-functions/.env
-functions/.env.*
-!functions/.env.example
-functions/.secret.local
-.firebase/
-*.log
-tools/node_modules/
