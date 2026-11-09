@@ -9,7 +9,7 @@ export const firebaseConfig = {
 };
 
 // The PUBLIC half of the alert key pair (from `npx web-push generate-vapid-keys`).
-export const VAPID_PUBLIC_KEY = "PASTE_VAPID_PUBLIC_KEY";
+export const VAPID_PUBLIC_KEY = "BHC7Bwl5iYiKhdUbGhwvMFzOP72AMIrjV1ZkrlB00Gjym5zpmzk_PzmcMs6RF6anmIpNLkJIv8WB0kX--WftTFY";
 
 // Must match the region in functions/index.js and your Firestore location.
 export const FUNCTIONS_REGION = "australia-southeast1";
