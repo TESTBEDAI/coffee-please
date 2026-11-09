@@ -55,7 +55,8 @@ service cloud.firestore {
     match /runs/{runId} {
       allow read: if isMember();
       allow create: if isMember()
-        && request.resource.data.keys().hasOnly(['by', 'cafe', 'status', 'createdAt', 'closesAt', 'invited', 'reminded'])
+        && request.resource.data.keys().hasOnly(['by', 'cafe', 'msg', 'status', 'createdAt', 'closesAt', 'invited', 'reminded'])
+        && (!('msg' in request.resource.data) || (request.resource.data.msg is string && request.resource.data.msg.size() <= 80))
         && request.resource.data.by == me()
         && request.resource.data.status == 'open'
         && request.resource.data.reminded == false
@@ -79,8 +80,9 @@ service cloud.firestore {
         allow create, update: if isMember() && me() == uid
           && run().status == 'open'
           && (me() in run().invited || run().by == me())
-          && request.resource.data.keys().hasOnly(['answer', 'order', 'at'])
-          && request.resource.data.answer in ['yes', 'no'];
+          && request.resource.data.keys().hasOnly(['answer', 'order', 'cups', 'at'])
+          && request.resource.data.answer in ['yes', 'no']
+          && (!('cups' in request.resource.data) || (request.resource.data.cups is list && request.resource.data.cups.size() <= 10));
         allow delete: if isMember() && me() == uid && run().status == 'open';
       }
     }
