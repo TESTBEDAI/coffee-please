@@ -1,7 +1,0 @@
-{
-  "name": "coffee-please-tools",
-  "private": true,
-  "description": "Rebuilds docs/vendor/firebase.js from the pinned Firebase SDK",
-  "scripts": { "build-vendor": "esbuild vendor-entry.js --bundle --format=esm --minify --target=es2020 --outfile=../docs/vendor/firebase.js" },
-  "devDependencies": { "firebase": "13.1.0", "esbuild": "0.25.10" }
-}
