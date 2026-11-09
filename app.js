@@ -139,10 +139,19 @@ function openRuns(){ const now = Date.now(); return S.runs.filter(r => r.status 
 const invitedOf = r => Array.isArray(r.invited) ? r.invited.filter(u => typeof u === "string") : [];
 const ans = (runId, uid) => { const a = S.answers[runId]?.[uid]; return a && typeof a === "object" ? a : null; };
 function pendingInvites(){ return openRuns().filter(r => r.by !== S.uid && invitedOf(r).includes(S.uid) && S.answers[r.id] && !ans(r.id, S.uid)); }
-function runOrders(r){
-  if(r.status === "done") return (Array.isArray(r.orders) ? r.orders : []).map(o => ({uid:str(o.uid,128), order:cleanOrder(o.order)})).filter(o => o.uid && o.order);
-  return [...new Set([r.by, ...invitedOf(r)])].map(u => { const a = ans(r.id, u); return a?.answer === "yes" ? {uid:u, order:cleanOrder(a.order)} : null; }).filter(o => o && o.order);
+const MAX_CUPS = 10;
+// One answer can hold up to 10 cups (for example, the person plus a visitor). Older answers hold a single "order".
+function cupsOf(a){
+  if(!a || a.answer !== "yes") return [];
+  const raw = Array.isArray(a.cups) && a.cups.length ? a.cups : [{order:a.order, forName:""}];
+  return raw.slice(0, MAX_CUPS).map(c => ({order:cleanOrder(c && c.order), forName:str(c && c.forName, 30)})).filter(c => c.order);
 }
+// Every cup in a run, one entry per cup, each counted to the person who ordered it.
+function runOrders(r){
+  if(r.status === "done") return (Array.isArray(r.orders) ? r.orders : []).map(o => ({uid:str(o.uid,128), order:cleanOrder(o.order), forName:str(o.forName,30)})).filter(o => o.uid && o.order);
+  return [...new Set([r.by, ...invitedOf(r)])].flatMap(u => cupsOf(ans(r.id, u)).map(c => ({uid:u, order:c.order, forName:c.forName})));
+}
+const cupsText = cups => cups.map(c => (c.forName ? c.forName + ": " : "") + orderText(c.order)).join(" + ");
 function nm(uid){ return str(S.members[uid]?.name, 40) || (uid === S.uid ? str(S.me?.name, 40) : "") || "Former member"; }
 function first(uid){ return uid === S.uid ? "You" : nm(uid).split(" ")[0]; }
 function av(uid, cls = ""){ const n = nm(uid); const ini = n.split(/\s+/).filter(Boolean).slice(0,2).map(w => w[0]).join("").toUpperCase() || "?"; return `<span class="av ${cls}" aria-hidden="true">${esc(ini)}</span>`; }
@@ -315,18 +324,19 @@ function participantPanel(r){
   let body;
   if(!loaded) body = `<p class="muted small">Loading answers…</p>`;
   else if(!me) body = `<div class="row"><button class="btn primary wide" data-act="yes" data-run="${esc(r.id)}">Yes please</button><button class="btn wide" data-act="no" data-run="${esc(r.id)}">No thanks</button></div>`;
-  else if(me.answer === "yes") body = `<div class="mine"><p class="eyebrow">Your order</p><b>${esc(orderText(cleanOrder(me.order)))}</b>
-      <div class="row"><button class="btn small" data-act="yes" data-run="${esc(r.id)}">Change order</button><button class="btn small ghost" data-act="drop" data-run="${esc(r.id)}">Drop out</button></div></div>`;
+  else if(me.answer === "yes"){ const cups = cupsOf(me); body = `<div class="mine"><p class="eyebrow">Your order${cups.length > 1 ? " · " + cups.length + " cups" : ""}</p>${cups.map(c => `<b>${c.forName ? esc(c.forName) + ": " : ""}${esc(orderText(c.order))}</b>`).join("")}
+      <div class="row"><button class="btn small" data-act="yes" data-run="${esc(r.id)}">Change order</button><button class="btn small ghost" data-act="drop" data-run="${esc(r.id)}">Drop out</button></div></div>`; }
   else body = `<div class="row split"><span class="muted">You said no thanks.</span><button class="btn small" data-act="yes" data-run="${esc(r.id)}">Actually, yes please</button></div>`;
   return `<article class="docket">
     <div class="docket-head"><div class="stack"><p class="eyebrow">Coffee run · ${esc(first(r.by))}'s shout</p><h2>${esc(nm(r.by))} is at ${esc(r.cafe || "the café")}</h2></div><span class="timer">${until(r.closesAt)}</span></div>
+    ${r.msg ? `<p>“${esc(str(r.msg, 80))}”</p>` : ""}
     ${body}
-    ${going.length ? `<p class="small muted">Also in: ${going.map(o => esc(first(o.uid))).join(", ")}</p>` : ""}
+    ${going.length ? `<p class="small muted">Also in: ${[...new Set(going.map(o => o.uid))].map(u => esc(first(u))).join(", ")}</p>` : ""}
   </article>`;
 }
 function docketText(r, orders){
   const groups = new Map();
-  orders.forEach(o => { const k = orderText(o.order); const g = groups.get(k) || {n:0, who:[]}; g.n++; g.who.push(nm(o.uid).split(" ")[0]); groups.set(k, g); });
+  orders.forEach(o => { const k = orderText(o.order); const g = groups.get(k) || {n:0, who:[]}; g.n++; const fn = nm(o.uid).split(" ")[0]; g.who.push(o.forName ? `${o.forName} (${fn})` : fn); groups.set(k, g); });
   const lines = [...groups].map(([k, g]) => `${g.n}× ${k}\n   (${g.who.join(", ")})`);
   return `COFFEE RUN · ${r.cafe || "Café"}\n${fmtDate(r.createdAt || Date.now())}\n\n${lines.join("\n") || "No orders yet"}\n\n${orders.length} ${orders.length === 1 ? "drink" : "drinks"}`;
 }
@@ -337,15 +347,17 @@ function hostPanel(r){
     const x = ans(r.id, u);
     if(!x) return `<div class="line">${av(u)}<div class="what"><b>${esc(nm(u))}</b><span>Hasn't answered</span></div><span class="pill wait">Waiting</span></div>`;
     if(x.answer !== "yes") return `<div class="line">${av(u)}<div class="what"><b>${esc(nm(u))}</b><span>No thanks</span></div><span class="pill no">No</span></div>`;
-    return `<div class="line">${av(u)}<div class="what"><b>${esc(nm(u))}</b><span>${esc(orderText(cleanOrder(x.order)))}</span></div><span class="pill">Yes</span></div>`;
+    const cups = cupsOf(x);
+    return `<div class="line">${av(u)}<div class="what"><b>${esc(nm(u))}</b><span>${esc(cupsText(cups))}</span></div><span class="pill">Yes${cups.length > 1 ? " · " + cups.length : ""}</span></div>`;
   }).join("");
   const mineA = ans(r.id, S.uid);
   const mineRow = mineA?.answer === "yes"
-    ? `<div class="line">${av(S.uid)}<div class="what"><b>You</b><span>${esc(orderText(cleanOrder(mineA.order)))}</span></div><button class="btn small" data-act="yes" data-run="${esc(r.id)}">Change</button></div>`
+    ? `<div class="line">${av(S.uid)}<div class="what"><b>You</b><span>${esc(cupsText(cupsOf(mineA)))}</span></div><button class="btn small" data-act="yes" data-run="${esc(r.id)}">Change</button></div>`
     : `<div class="line">${av(S.uid)}<div class="what"><b>You</b><span>Getting one for yourself?</span></div><button class="btn small" data-act="yes" data-run="${esc(r.id)}">Add mine</button></div>`;
   const answered = inv.filter(u => ans(r.id, u)).length;
   return `<article class="docket">
     <div class="docket-head"><div class="stack"><p class="eyebrow">Your coffee run · your shout</p><h2>${esc(r.cafe || "At the café")}</h2></div><span class="timer">${until(r.closesAt)}</span></div>
+    ${r.msg ? `<p class="small muted">Your message: “${esc(str(r.msg, 80))}”</p>` : ""}
     <div class="row"><span class="pill wait">${answered} of ${inv.length} answered</span></div>
     <div class="lines">${rows}${mineRow}</div>
     <hr class="tear">
@@ -370,7 +382,7 @@ function viewHistory(){
   if(!runs.length) return `<div class="card"><h3>No coffee runs yet</h3><p class="muted">Finished runs show up here with who ordered what.</p></div>`;
   return runs.map(r => {
     const orders = runOrders(r);
-    const lines = orders.map(o => `<div class="hl"><span>${esc(first(o.uid))}</span><span>${esc(orderText(o.order))}</span></div>`).join("");
+    const lines = orders.map(o => `<div class="hl"><span>${esc(first(o.uid))}${o.forName ? " for " + esc(o.forName) : ""}</span><span>${esc(orderText(o.order))}</span></div>`).join("");
     const cancelled = r.status === "cancelled";
     return `<details class="run" data-id="${esc(r.id)}"${S.openDetails.has(r.id) ? " open" : ""}>
       <summary><span class="t">${esc(r.cafe || "Café")} · ${cancelled ? "cancelled" : (r.by === S.uid ? "your shout" : esc(first(r.by)) + "'s shout")}</span>
@@ -423,6 +435,7 @@ function incomingSheet(r){
   openSheet("incoming:" + r.id, `<div class="incoming"><div class="cup">${CUP}</div>
     <p class="eyebrow">Coffee run · ${until(r.closesAt)}</p>
     <h2 id="sheet-title">${esc(nm(r.by))} is at ${esc(r.cafe || "the café")}</h2>
+    ${r.msg ? `<p>“${esc(str(r.msg, 80))}”</p>` : ""}
     <p class="muted">Want a coffee? It's ${esc(first(r.by))}'s shout.</p></div>
   <div class="row"><button class="btn primary wide" data-act="yes" data-run="${esc(r.id)}" data-autofocus>Yes please</button><button class="btn wide" data-act="no" data-run="${esc(r.id)}">No thanks</button></div>`);
 }
@@ -431,6 +444,7 @@ function startSheet(){
   openSheet("start", `<h2 id="sheet-title">Who wants a coffee?</h2>
   <form id="startForm" class="stack" style="gap:16px">
     <div class="field"><label for="st-cafe">Where are you?</label><input id="st-cafe" type="text" maxlength="60" placeholder="Café name" value="${esc(LS.get("lastCafe", ""))}" data-autofocus></div>
+    <div class="field"><label for="st-msg">Short message <span class="muted">(optional)</span></label><input id="st-msg" type="text" maxlength="80" placeholder="e.g. Back in 10, grabbing muffins too"></div>
     <fieldset><legend>Answer within</legend><div class="seg">${[5,10,15,20].map(m => `<label><input type="radio" name="st-mins" value="${m}" ${m === 10 ? "checked" : ""}><span>${m} min</span></label>`).join("")}</div></fieldset>
     <fieldset><legend>Ask</legend>${others.length ? `<div class="seg">${others.map(u => `<label><input type="checkbox" name="st-who" value="${esc(u)}" checked><span>${esc(nm(u).split(" ")[0])}</span></label>`).join("")}</div>` : `<p class="small muted">No one else has joined yet.</p>`}</fieldset>
     <div class="row"><button class="btn primary wide" type="submit" ${others.length ? "" : "disabled"}>Send the ask</button><button class="btn ghost" type="button" data-act="sheet-close">Not now</button></div>
@@ -447,7 +461,7 @@ function orderFormHTML(o, opts){
       <fieldset><legend>Sugars</legend><div class="seg">${[0,1,2,3].map(n => `<label><input type="radio" name="o-sugar" value="${n}" ${n === (o.sugar || 0) ? "checked" : ""}><span>${n}</span></label>`).join("")}</div></fieldset></div>
     <label class="check" for="o-hot"><input type="checkbox" id="o-hot" ${o.hot ? "checked" : ""}> Extra hot</label>
     <div class="field"><label for="o-notes">Anything else</label><input id="o-notes" type="text" maxlength="80" placeholder="e.g. in a mug" value="${esc(o.notes || "")}"></div>
-    ${opts.save ? `<label class="check" for="o-save"><input type="checkbox" id="o-save" checked> Save to my orders</label>` : ""}
+    ${opts.save ? `<label class="check" for="o-save"><input type="checkbox" id="o-save" ${opts.saveChecked === false ? "" : "checked"}> Save to my orders</label>` : ""}
     <div class="field"><label for="o-label">Name it</label><input id="o-label" type="text" maxlength="30" placeholder="My usual" value="${esc(o.label || "")}"></div>
   </div>`;
 }
@@ -458,20 +472,39 @@ function readOrderForm(){
     other: drink === "Other" ? $("#o-other").value.trim().slice(0, 60) : "", notes:$("#o-notes").value.trim().slice(0, 80), label:$("#o-label").value.trim().slice(0, 30) };
 }
 function favourites(){ return (Array.isArray(S.me?.favourites) ? S.me.favourites : []).map(cleanOrder).filter(Boolean); }
-function orderSheet(r){
-  const favs = favourites();
-  const cur = cleanOrder(ans(r.id, S.uid)?.order);
-  const curIdx = cur ? favs.findIndex(f => orderText(f) === orderText(cur)) : -1;
-  const pick = curIdx >= 0 ? curIdx : (cur ? "new" : (favs.length ? 0 : "new"));
-  openSheet("order:" + r.id, `<h2 id="sheet-title">What are you having?</h2>
+// Ordering: a list of cups (up to 10), each picked from saved orders or built new, with an optional "for" name.
+let D = null;
+function draftRun(){ return D && S.runs.find(r => r.id === D.runId); }
+function startDraft(r){
+  D = {runId:r.id, cups:cupsOf(ans(r.id, S.uid))};
+  if(D.cups.length) return cupsSheet();
+  const f = favourites()[0];
+  if(f){ D.cups.push({order:f, forName:""}); return cupsSheet(); }
+  cupEditSheet(0);
+}
+function cupsSheet(){
+  const r = draftRun(); if(!r) return closeSheet();
+  const n = D.cups.length;
+  openSheet("cups:" + r.id, `<h2 id="sheet-title">What are you having?</h2>
     <p class="muted small">${esc(nm(r.by))} · ${esc(r.cafe || "the café")} · ${until(r.closesAt)}</p>
-    <form id="orderForm" data-run="${esc(r.id)}" class="stack" style="gap:16px">
+    <div class="lines">${D.cups.map((c, i) => `<div class="line"><span class="av sm">${i + 1}</span><div class="what"><b>${c.forName ? "For " + esc(c.forName) : (i === 0 ? "Your cup" : "Extra cup")}</b><span>${esc(orderText(c.order))}</span></div><div class="row"><button class="btn small" data-act="cup-edit" data-i="${i}">Change</button>${n > 1 ? `<button class="btn small ghost danger" data-act="cup-remove" data-i="${i}" aria-label="Remove cup ${i + 1}">✕</button>` : ""}</div></div>`).join("")}</div>
+    <div class="row split"><button class="btn" data-act="cup-add" ${n >= MAX_CUPS ? "disabled" : ""}>+ Add another cup</button><span class="small muted">${n} of ${MAX_CUPS} cups</span></div>
+    <div class="row"><button class="btn primary wide" data-act="cups-send" data-autofocus>Send order${n > 1 ? ` (${n} cups)` : ""}</button><button class="btn ghost" data-act="sheet-close">Back</button></div>`);
+}
+function cupEditSheet(i){
+  const r = draftRun(); if(!r) return closeSheet();
+  const favs = favourites(), cur = D.cups[i] || null;
+  const curIdx = cur ? favs.findIndex(f => orderText(f) === orderText(cur.order)) : -1;
+  const pick = curIdx >= 0 ? curIdx : (cur ? "new" : (favs.length && i === 0 ? 0 : "new"));
+  openSheet("cup:" + r.id, `<h2 id="sheet-title">${i === 0 ? "Your cup" : "Cup " + (i + 1)}</h2>
+    <form id="cupForm" data-i="${i}" class="stack" style="gap:16px">
+      <div class="field"><label for="c-for">Who's it for?</label><input id="c-for" type="text" maxlength="30" placeholder="${i === 0 ? "You" : "e.g. Visitor"}" value="${esc(cur ? cur.forName : "")}"></div>
       <div class="favs">
-        ${favs.map((f, i) => `<label class="fav"><input type="radio" name="pick" value="${i}" ${pick === i ? "checked" : ""}><div class="what"><b>${esc(f.label || "Saved order " + (i + 1))}</b><span>${esc(orderText(f))}</span></div></label>`).join("")}
-        <label class="fav"><input type="radio" name="pick" value="new" ${pick === "new" ? "checked" : ""}><div class="what"><b>${favs.length ? "Something different" : "New order"}</b><span>Build an order${favs.length ? "" : " and save it for next time"}</span></div></label>
+        ${favs.map((f, k) => `<label class="fav"><input type="radio" name="pick" value="${k}" ${pick === k ? "checked" : ""}><div class="what"><b>${esc(f.label || "Saved order " + (k + 1))}</b><span>${esc(orderText(f))}</span></div></label>`).join("")}
+        <label class="fav"><input type="radio" name="pick" value="new" ${pick === "new" ? "checked" : ""}><div class="what"><b>${favs.length ? "Something different" : "New order"}</b><span>Build an order</span></div></label>
       </div>
-      <div id="newOrder" ${pick === "new" ? "" : "hidden"}>${orderFormHTML(curIdx < 0 ? cur : null, {save:true})}</div>
-      <div class="row"><button class="btn primary wide" type="submit">Send my order</button><button class="btn ghost" type="button" data-act="sheet-close">Back</button></div>
+      <div id="newOrder" ${pick === "new" ? "" : "hidden"}>${orderFormHTML(curIdx < 0 && cur ? cur.order : null, {save:true, saveChecked:i === 0 && !favs.length})}</div>
+      <div class="row"><button class="btn primary wide" type="submit">${cur ? "Done" : "Add this cup"}</button><button class="btn ghost" type="button" data-act="cup-back">Cancel</button></div>
     </form>`);
 }
 function favSheet(i){
@@ -554,7 +587,7 @@ async function write(fn, ok){ try{ await fn(); if(ok) toast(ok); return true; }c
 const memberRef = () => doc(db, "members", S.uid);
 async function setAnswer(runId, val){ const ref = doc(db, "runs", runId, "answers", S.uid); if(val) await setDoc(ref, {...val, at:Date.now()}); else await deleteDoc(ref); }
 async function completeRun(r){
-  const orders = runOrders(r).map(o => ({uid:o.uid, order:o.order}));
+  const orders = runOrders(r).map(o => ({uid:o.uid, order:o.order, forName:o.forName || ""}));
   if(!orders.length) return toast("No orders yet. Cancel the run instead if nobody wants one.");
   await write(() => updateDoc(doc(db, "runs", r.id), {status:"done", completedAt:Date.now(), orders}), "Shout recorded. Nice one");
 }
@@ -588,7 +621,18 @@ document.addEventListener("click", async e => {
     case "signin-here": { const em = LS.get("email", ""); if(em) completeLink(em, location.href); else { S.stage = "link-email"; schedule(); } break; }
     case "signout": stopAll(); stopTeamData(); await signOut(auth); break;
     case "start-open": startSheet(); break;
-    case "yes": if(run) orderSheet(run); break;
+    case "yes": if(run) startDraft(run); break;
+    case "cup-edit": if(D) cupEditSheet(parseInt(el.dataset.i)); break;
+    case "cup-add": if(D && D.cups.length < MAX_CUPS) cupEditSheet(D.cups.length); break;
+    case "cup-remove": if(D){ D.cups.splice(parseInt(el.dataset.i), 1); cupsSheet(); } break;
+    case "cup-back": if(D && D.cups.length) cupsSheet(); else closeSheet(); break;
+    case "cups-send": {
+      if(!D || !D.cups.length) break;
+      const n = D.cups.length, runId = D.runId;
+      el.disabled = true;
+      if(await write(() => setAnswer(runId, {answer:"yes", order:D.cups[0].order, cups:D.cups.map(c => ({order:c.order, forName:c.forName || ""}))}), n > 1 ? `Order sent: ${n} cups` : "Order sent")) closeSheet();
+      el.disabled = false; break;
+    }
     case "no": if(run){ closeSheet(); await write(() => setAnswer(run.id, {answer:"no", order:null}), "No worries"); } break;
     case "drop": if(run) await write(() => setAnswer(run.id, null), "You're out of this run"); break;
     case "copy-docket": if(run) copy(docketText(run, runOrders(run))); break;
@@ -651,24 +695,24 @@ document.addEventListener("submit", async e => {
   }
   if(f.id === "nameForm"){ const name = $("#me-name").value.trim().slice(0, 40); if(name) await write(() => updateDoc(memberRef(), {name}), "Name saved"); }
   if(f.id === "startForm"){
-    const cafe = $("#st-cafe").value.trim().slice(0, 60);
+    const cafe = $("#st-cafe").value.trim().slice(0, 60), msg = $("#st-msg").value.trim().slice(0, 80);
     const mins = parseInt(f.querySelector('input[name="st-mins"]:checked')?.value || "10");
     const invited = [...f.querySelectorAll('input[name="st-who"]:checked')].map(i => i.value);
     if(!invited.length) return toast("Pick at least one person to ask");
     LS.set("lastCafe", cafe); busy(true);
     const now = Date.now(), ref = doc(collection(db, "runs"));
-    if(await write(() => setDoc(ref, {by:S.uid, cafe, status:"open", createdAt:now, closesAt:now + mins * 60000, invited, reminded:false}), `Asked ${invited.length} ${invited.length === 1 ? "person" : "people"}`)){ closeSheet(); S.tab = "run"; }
+    if(await write(() => setDoc(ref, {by:S.uid, cafe, msg, status:"open", createdAt:now, closesAt:now + mins * 60000, invited, reminded:false}), `Asked ${invited.length} ${invited.length === 1 ? "person" : "people"}`)){ closeSheet(); S.tab = "run"; }
     busy(false);
   }
-  if(f.id === "orderForm"){
-    const runId = f.dataset.run, pick = f.querySelector('input[name="pick"]:checked')?.value, favs = favourites();
+  if(f.id === "cupForm"){
+    if(!D) return closeSheet();
+    const i = parseInt(f.dataset.i), pick = f.querySelector('input[name="pick"]:checked')?.value, favs = favourites();
     let order;
     if(pick && pick !== "new") order = favs[parseInt(pick)];
     else { order = readOrderForm(); if($("#o-save")?.checked){ const nf = [...favs, {...order, label:order.label || (favs.length ? "Order " + (favs.length + 1) : "My usual")}].slice(-12); await write(() => updateDoc(memberRef(), {favourites:nf})); } }
     if(!order) return;
-    busy(true);
-    if(await write(() => setAnswer(runId, {answer:"yes", order:cleanOrder(order)}), "Order sent")) closeSheet();
-    busy(false);
+    D.cups[i] = {order:cleanOrder(order), forName:$("#c-for").value.trim().slice(0, 30)};
+    cupsSheet();
   }
   if(f.id === "favForm"){
     const o = readOrderForm(), favs = favourites(), i = f.dataset.i === "" ? -1 : parseInt(f.dataset.i);
